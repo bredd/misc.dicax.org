@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>CallApi</title>
+	<style>
+h2 {
+	color: blue;
+}
+.tlnk {
+	text-decoration: underline;
+	color: darkgreen;
+	cursor: pointer;
+}
+	</style>
+</head>
+<body>
+	<h2>Request</h2>
+	<p id="templates">
+		<strong>Templates:</strong>
+	</p>
+	<p><button onclick="clearAll(event)">Clear</button></p>
+	<form id="form" onsubmit="sendRequest(event)">
+		<table class="layout">
+			<tr>
+				<td><label for="url">URL:</label></td>
+				<td><input id="url" name="url" type="text" style="width: 32em;" /></td>
+			</tr>
+			<tr>
+				<td><label for="verb">Verb:</label></td>
+				<td><select id="verb" name="verb"><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option></select></td>
+			</tr>
+			<tr>
+				<td><label for="contenttype">Content-Type:</label></td>
+				<td><select id="contenttype" name="contenttype"><option value="application/json">application/json</option><option value="text/plain">text/plain</option><option value="text/html">text/html</option><option value="application/x-www-form-urlencoded">application/x-www-form-urlencoded</option><option value="multipart/form-data">multipart/form-data</option></select></td>
+			</tr>
+			<tr>
+				<td><label for="authorization">Authorization:</label></td>
+				<td><input id="authorization" name="authorization" type="text" style="width: 40em;" /></td>
+			</tr>
+			<tr>
+				<td><label for="credinclude">credentials:</label></td>
+				<td><input id="credinclude" name="credinclude" type="checkbox" checked="checked"/><label for="credinclude">include</label></td>
+			</tr>
+			<tr>
+				<td><label for="mode">mode:</label></td>
+				<td><select id="mode" name="mode"><option value="">(default)</option><option value="no-cors">no-cors</option><option value="cors">cors</option><option value="same-origin">same-origin</option></select></td>
+			</tr>
+		</table>
+		<textarea id="body" name="body" cols="80" rows="10"></textarea><br/>
+		<button type="submit">Send</button>
+	</form>
+	<hr/>
+	<h2>Response</h2>
+	<div id="resStatus"></div>
+	<div id="resHeaders"></div>
+	<pre id="resBody"></pre>
+	<script>
+"use strict";
+
+async function sendRequest(e) {
+	e.preventDefault();
+	const oldCookie = document.cookie;
+	const form = e.currentTarget;
+	const reqUrl = form.url.value;
+    const verb = form.verb.value
+	const req = {
+		headers: {},
+		method: verb
+	};
+	if (verb == "POST" || verb == "PUT") {
+		req.headers["Content-Type"] = form.contenttype.value;
+		req.body = form.body.value;
+	}
+	const authorization = form.authorization.value;
+	if (authorization) {
+		req.headers["Authorization"] = authorization;
+	}
+	if (form.credinclude.checked) {
+		req.credentials = "include";
+	}
+	if (form.mode.value) {
+		req.mode = form.mode.value;
+	}
+
+	document.getElementById("resStatus").innerHTML = "";
+	document.getElementById("resHeaders").innerHTML = "";
+	document.getElementById("resBody").textContent = "";
+
+	try {
+		const response = await fetch(reqUrl, req);
+		document.getElementById("resStatus").textContent = `${response.status} ${response.statusText}`;
+		let newAuthorization;
+		if (newAuthorization = getUpdatedAuthorization(response)) document.getElementById("authorization").value = newAuthorization;
+		reportHeaders(response, oldCookie);
+		let bodyText = await response.text();
+		document.getElementById("resBody").textContent = bodyText;
+	}
+	catch(err) {
+		document.getElementById("resBody").textContent = `Error: ${err.message}\nSee console.`;
+	}
+}
+
+function getUpdatedAuthorization(response) {
+	const info = response.headers.get('Authentication-Info');
+	if (!info) return;
+	for (let part of info.split(',')) {
+		part = part.trim();
+		let eq = part.search('=');
+		if (eq < 0) continue;
+		let e = eq;
+		while (e > 0 && (part[e - 1] == ' ' || part[e - 1] == '\t')) --e;
+		if (e != 13 || part.substring(0, 13).toLowerCase() != 'bearer-update') continue;
+		return "Bearer " + part.substring(eq + 1).trim();
+	}
+}
+
+function reportHeaders(response, oldCookie) {
+	var ele = document.getElementById("resHeaders");
+	ele.innerHTML = "";
+	for (let pair of response.headers) {
+		var div = document.createElement("div");
+		div.textContent = `${pair[0]}: ${pair[1]}`;
+		ele.appendChild(div);
+	}
+
+	// Report Cookies
+	const oldCookies = parseCookies(oldCookie);
+	const newCookies = parseCookies(document.cookie);
+	for (var key in newCookies) {
+		if (newCookies[key] != oldCookies[key]) {
+            var div = document.createElement("div");
+            div.textContent = `Set-Cookie:\u00A0${key}=${newCookies[key]}`;
+            ele.appendChild(div);
+		}
+	}
+}
+
+function parseCookies(cookieString) {
+	let cookies = {};
+	for (var cookie of cookieString.split(';')) {
+		let eq = cookie.indexOf('=');
+        cookies[cookie.substring(0, eq).trim()] = cookie.substring(eq + 1).trim();;
+	}
+	return cookies;
+}
+
+function deleteAllCookies() {
+	for (const key in parseCookies(document.cookie)) {
+		// Clear with and without path
+        document.cookie = key + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+        document.cookie = key + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+	}
+}
+
+function clearAll(e) {
+	e.preventDefault();
+
+	// Clear Request
+	document.getElementById("verb").value = "GET";
+	updateUrl("/");
+	document.getElementById("token").value = "";
+	document.getElementById("credinclude").checked = false;
+	document.getElementById("body").value = "";
+	deleteAllCookies();
+
+	// Clear Response
+    document.getElementById("resStatus").innerHTML = "";
+    document.getElementById("resHeaders").innerHTML = "";
+    document.getElementById("resBody").textContent = "";
+}
+
+
+let templateIndex = 0;
+
+function onTemplateClick(e) {
+	e.preventDefault();
+	let data = e.target.data;
+	if (data.alt) {
+		data = data.alt[templateIndex % data.alt.length];
+		templateIndex++;
+	}
+	document.getElementById("verb").value = data.verb;
+	updateUrl(data.url);
+	if (data.contenttype) {
+		document.getElementById("contenttype").value = data.contenttype;
+	}
+	if (data.body) {
+		document.getElementById("body").value = JSON.stringify(data.body, null, 2);
+	}
+	else {
+		document.getElementById("body").value = "";
+	}
+}
+
+function updateUrl(newurl) {
+    const urlele = document.getElementById("url");
+    const existing = urlele.value;
+    if (existing.startsWith('http')) {
+        urlele.value = new URL(newurl, existing);
+    }
+    else {
+        urlele.value = newurl;
+    }
+}
+
+function setTemplates() {
+	const p = document.getElementById("templates");
+	for (let t of templates) {
+		p.appendChild(document.createTextNode(" "));
+		let a = document.createElement("a");
+		a.data = t;
+		a.classList.add("tlnk");
+		a.addEventListener("click", onTemplateClick);
+		a.textContent = t.name;
+		p.append(a);
+	}
+}
+
+
+// Initialization
+function initCallapi() {
+    // Default URL
+    document.getElementById("url").value = defaultUrl;
+    setTemplates();
+}
+
+window.addEventListener("load", initCallapi);
+
+const defaultUrl = "https://restspace.dicax.org";  // window.location.origin;
+
+const templates = [
+	{
+		name: "Login",
+		verb: "POST",
+		url: "/api/login",
+		contenttype: "application/json",
+		body: { username: "a", password: ""}
+	},
+	{
+		name: "Logout",
+		verb: "GET",
+		url: "/api/logout",
+		contenttype: "application/json"
+	},
+	{
+		name: "Create",
+		alt: [
+		{
+                verb: "POST",
+                url: "/api/items",
+				contenttype: "application/json",
+                body: { make: "Toyota", model: "Sera", year: 1990 }
+			},
+            {
+                verb: "POST",
+                url: "/api/items",
+				contenttype: "application/json",
+                body: { make: "Suzuki", model: "Jimny", year: 2005 }
+            },
+            {
+                verb: "PUT",
+                url: "/api/items/0",
+				contenttype: "application/json",
+                body: { make: "Ford", model: "Maverick", year: 1972 }
+            },
+            {
+                verb: "POST",
+                url: "/api/items",
+				contenttype: "application/json",
+                body: { make: "Porsche", model: "911", year: 1997 }
+            },
+            {
+                verb: "POST",
+                url: "/api/items",
+				contenttype: "application/json",
+                body: { make: "Volkswagen", model: "Type 2", year: 1952 }
+            }
+		]
+	},
+	{
+		name: "Read",
+		verb: "GET",
+		url: "/api/items",
+		contenttype: "application/json"
+	},
+	{
+		name: "ReadId",
+		verb: "GET",
+		url: "/api/items/0",
+		contenttype: "application/json"
+	},
+    {
+        name: "Find",
+        verb: "GET",
+		url: "/api/items?make=MINI",
+		contenttype: "application/json"
+	},
+    {
+		name: "Update",
+		alt: [
+			{
+				verb: "PUT",
+				url: "/api/items/0",
+				contenttype: "application/json",
+				body: { make: "Toyota", model: "Previa", year: 1995 }
+			},
+            {
+                verb: "PUT",
+                url: "/api/items/0",
+				contenttype: "application/json",
+                body: { make: "Geo", model: "Tracker", year: 2003 }
+            },
+            {
+                verb: "PUT",
+                url: "/api/items/0",
+				contenttype: "application/json",
+                body: { make: "Shelby", model: "Cobra", year: 1966 }
+            },
+            {
+                verb: "PUT",
+                url: "/api/items/0",
+				contenttype: "application/json",
+                body: { make: "MG", model: "Midget", year: 1964 }
+            },
+            {
+                verb: "PUT",
+                url: "/api/items/0",
+				contenttype: "application/json",
+                body: { make: "Lotus", model: "Esprit", year: 1994 }
+            },
+		]
+    },
+    {
+        name: "Delete",
+        verb: "DELETE",
+        url: "/api/items/0",
+		contenttype: "application/json"
+    }
+];
+	</script>
+		
+</body>
+</html>
